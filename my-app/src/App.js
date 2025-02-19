@@ -2,6 +2,10 @@ import React, { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import "./App.css";
 
+
+
+
+
 // Exemple de skins disponibles
 const mockSkins = [
     { id: 1, name: "Skin Guerrier", price: 100, category: "Epic" },
