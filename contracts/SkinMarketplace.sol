@@ -5,8 +5,9 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract SkinMarketplace is ERC721URIStorage, Ownable {
-    uint256 private _tokenIdCounter;  // Remplacé Counters.Counter par uint256
+contract SkinMarketplace is ERC721URIStorage, Ownable(msg.sender) {
+    uint256 private _tokenIdCounter;  
+    
 
     IERC20 public gameToken;
     uint256 public cooldownPeriod = 5 minutes;
@@ -18,66 +19,81 @@ contract SkinMarketplace is ERC721URIStorage, Ownable {
     mapping(uint256 => uint256) public skinPrices;
     mapping(uint256 => string) public skinCategories;
     mapping(uint256 => string) public ipfsHashes;
-    mapping(address => uint256[]) public userSkins;
+    mapping(address => uint256[]) private userSkins;
 
-    event SkinBought(address buyer, uint256 tokenId, uint256 price);
-    event SkinListed(address seller, uint256 tokenId, uint256 price);
-    event SkinExchanged(address from, address to, uint256 tokenId);
+    event SkinBought(address indexed buyer, uint256 indexed tokenId, uint256 price);
+    event SkinListed(address indexed seller, uint256 indexed tokenId, uint256 price);
+    event SkinExchanged(address indexed from, address indexed to, uint256 indexed tokenId);
 
     constructor(address _gameToken) ERC721("SkinMarketplace", "SKIN") {
+        require(_gameToken != address(0), "Invalid token address");
         gameToken = IERC20(_gameToken);
-        transferOwnership(msg.sender);  // Ajout du transfert de la propriété au déployeur
+        transferOwnership(msg.sender);
     }
 
-    function _mintSkin(address to, string memory tokenURI, uint256 price, string memory category, string memory ipfsHash) public onlyOwner {
-        require(userSkins[to].length < maxSkinsPerUser, "User already owns maximum number of skins");
+    function mintSkin(
+        address to, 
+        string memory tokenURI, 
+        uint256 price, 
+        string memory category, 
+        string memory ipfsHash
+    ) external onlyOwner {
+        require(userSkins[to].length < maxSkinsPerUser, "User already owns maximum skins");
         
-        uint256 tokenId = _tokenIdCounter;  // Utilisation de _tokenIdCounter directement
+        uint256 tokenId = _tokenIdCounter;
         _safeMint(to, tokenId);
         _setTokenURI(tokenId, tokenURI);
+        
         skinPrices[tokenId] = price;
         skinCategories[tokenId] = category;
         ipfsHashes[tokenId] = ipfsHash;
         
-        _tokenIdCounter += 1;  // Incrémentation manuelle de _tokenIdCounter
         userSkins[to].push(tokenId);
+        _tokenIdCounter++;
+
         emit SkinListed(to, tokenId, price);
     }
 
-    function buySkin(uint256 tokenId) public {
-        require(lastTransaction[msg.sender] + cooldownPeriod <= block.timestamp, "Cooldown period not over.");
-        require(lockedUntil[msg.sender] <= block.timestamp, "User is locked.");
-        require(userSkins[msg.sender].length < maxSkinsPerUser, "Cannot own more than allowed skins");
+    function buySkin(uint256 tokenId) external {
+        require(lastTransaction[msg.sender] + cooldownPeriod <= block.timestamp, "Cooldown period active");
+        require(lockedUntil[msg.sender] <= block.timestamp, "User is locked");
+        require(userSkins[msg.sender].length < maxSkinsPerUser, "Max skins owned");
 
-        address owner = ownerOf(tokenId);
+        address seller = ownerOf(tokenId);
+        require(seller != msg.sender, "Cannot buy your own skin");
+
         uint256 price = skinPrices[tokenId];
+        require(gameToken.transferFrom(msg.sender, seller, price), "Token transfer failed");
 
-        require(gameToken.transferFrom(msg.sender, owner, price), "Token transfer failed");
-        _safeTransfer(owner, msg.sender, tokenId, "");
+        _transfer(seller, msg.sender, tokenId);
+        _removeSkinFromUser(seller, tokenId);
+        userSkins[msg.sender].push(tokenId);
 
         lastTransaction[msg.sender] = block.timestamp;
         lockedUntil[msg.sender] = block.timestamp + lockPeriod;
 
-        userSkins[msg.sender].push(tokenId);
-        
         emit SkinBought(msg.sender, tokenId, price);
     }
 
-    function exchangeSkin(uint256 tokenId, address to) public {
-        require(ownerOf(tokenId) == msg.sender, "You do not own this skin");
+    function exchangeSkin(uint256 tokenId, address to) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the skin owner");
         require(userSkins[to].length < maxSkinsPerUser, "Recipient cannot hold more skins");
-        
-        _safeTransfer(msg.sender, to, tokenId, "");
-        
-        for (uint256 i = 0; i < userSkins[msg.sender].length; i++) {
-            if (userSkins[msg.sender][i] == tokenId) {
-                userSkins[msg.sender][i] = userSkins[msg.sender][userSkins[msg.sender].length - 1];
-                userSkins[msg.sender].pop();
+
+        _transfer(msg.sender, to, tokenId);
+        _removeSkinFromUser(msg.sender, tokenId);
+        userSkins[to].push(tokenId);
+
+        emit SkinExchanged(msg.sender, to, tokenId);
+    }
+
+    function _removeSkinFromUser(address user, uint256 tokenId) private {
+        uint256[] storage skins = userSkins[user];
+        for (uint256 i = 0; i < skins.length; i++) {
+            if (skins[i] == tokenId) {
+                skins[i] = skins[skins.length - 1];
+                skins.pop();
                 break;
             }
         }
-        
-        userSkins[to].push(tokenId);
-        emit SkinExchanged(msg.sender, to, tokenId);
     }
 }

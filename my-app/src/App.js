@@ -1,10 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { ethers } from "ethers";
+import { JsonRpcProvider, Contract, formatEther } from "ethers";
+
 import "./App.css";
-
-
-
-
 
 // Exemple de skins disponibles
 const mockSkins = [
@@ -23,47 +20,57 @@ const App = () => {
 
     useEffect(() => {
         const connectToContract = async () => {
-            // Connexion à Hardhat (local)
-            const localProvider = new ethers.JsonRpcProvider("http://localhost:8545"); // Assure-toi que le nœud Hardhat est lancé
-            setProvider(localProvider);
+            try {
+                // Connexion à Hardhat (local)
+                const localProvider = new JsonRpcProvider("http://localhost:8545");
+                setProvider(localProvider);
 
-            // Récupérer l'adresse du compte
-            const [userAccount] = await localProvider.listAccounts();
-            setAccount(userAccount);
+                // Récupérer l'adresse du premier compte disponible
+                const accounts = await localProvider.send("eth_accounts", []);
+                if (accounts.length === 0) {
+                    console.error("Aucun compte disponible.");
+                    return;
+                }
+                setAccount(accounts[0]);
 
-            // ABI et adresse du smart contract déployé
-            const contractAddress = "0x..."; // Remplace par l'adresse du contrat déployé
-            const contractABI = [
-                // Exemple de ABI d'un contrat ERC-20
-                "function buySkin(uint256 skinId) public",
-                "function balanceOf(address owner) view returns (uint256)",
-            ];
+                // Adresse et ABI du contrat
+                const contractAddress = "0x..."; // Remplace par l'adresse du contrat déployé
+                const contractABI = [
+                    "function buySkin(uint256 skinId) public",
+                    "function balanceOf(address owner) view returns (uint256)",
+                ];
 
-            // Créer une instance du contrat
-            const contractInstance = new ethers.Contract(contractAddress, contractABI, localProvider);
-            setContract(contractInstance);
+                // Création de l'instance du contrat
+                const contractInstance = new Contract(contractAddress, contractABI, localProvider);
+                setContract(contractInstance);
 
-            // Récupérer le solde initial en tokens (optionnel)
-            const initialBalance = await contractInstance.balanceOf(userAccount);
-            setBalance(ethers.utils.formatEther(initialBalance)); // Convertir en ethers
+                // Récupérer le solde initial en tokens
+                const initialBalance = await contractInstance.balanceOf(accounts[0]);
+                setBalance(formatEther(initialBalance)); // Convertir en ethers
+            } catch (error) {
+                console.error("Erreur lors de la connexion au contrat :", error);
+            }
         };
 
         connectToContract();
     }, []);
 
     const buySkin = async (skin) => {
-        if (!contract || !account) return;
+        if (!contract || !account || !provider) return;
         
         if (balance >= skin.price) {
             try {
-                // Acheter un skin (exécution d'une transaction)
-                const tx = await contract.buySkin(skin.id, { from: account });
-                await tx.wait(); // Attendre que la transaction soit confirmée
+                // Obtenir le signer pour envoyer une transaction
+                const signer = await provider.getSigner();
+                const contractWithSigner = contract.connect(signer);
 
-                // Mettre à jour l'état (ici, on ajoute le skin acheté)
+                // Exécution de la transaction
+                const tx = await contractWithSigner.buySkin(skin.id);
+                await tx.wait(); // Attendre la confirmation
+
+                // Mise à jour de l'état local
                 setOwnedSkins([...ownedSkins, skin]);
-                setBalance(balance - skin.price); // Déduire le prix du skin du solde
-
+                setBalance(balance - skin.price);
                 alert("Skin acheté avec succès!");
             } catch (error) {
                 alert("Erreur lors de l'achat du skin");
