@@ -23,18 +23,24 @@ const App = () => {
             try {
                 // Connexion à Hardhat (local)
                 const localProvider = new JsonRpcProvider("http://localhost:8545");
-                setProvider(localProvider);
-
+                setProvider (localProvider);
+               
+                const accounts = await localProvider.listAccounts();
+              
                 // Récupérer l'adresse du premier compte disponible
-                const accounts = await localProvider.send("eth_accounts", []);
+                //const accounts = await localProvider.send("eth_accounts", []);
+                
                 if (accounts.length === 0) {
                     console.error("Aucun compte disponible.");
                     return;
                 }
                 setAccount(accounts[0]);
+                console.log(accounts[0].address)
+                console.log(account)
+                setBalance(account.balance)
 
                 // Adresse et ABI du contrat
-                const contractAddress = "0x..."; // Remplace par l'adresse du contrat déployé
+                const contractAddress = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"; // Remplace par l'adresse du contrat déployé
                 const contractABI = [
                     "function buySkin(uint256 skinId) public",
                     "function balanceOf(address owner) view returns (uint256)",
